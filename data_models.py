@@ -1,23 +1,23 @@
-# emp_planning_system/data_models.py
-
-from dataclasses import dataclass
+import uuid
+from dataclasses import dataclass, field
 
 @dataclass
 class EMP:
-    """Lớp lưu trữ thông tin cho một nguồn phát EMP."""
-    id: str  # Một định danh duy nhất, ví dụ dùng uuid
+    name: str
     lat: float
     lon: float
-    power: float      # Công suất (W)
-    frequency: float  # Tần số (MHz)
-    height: float     # Độ cao lắp đặt so với mặt đất (m)
+    power: float
+    frequency: float
+    height: float
+    # Dùng UUID để định danh duy nhất, không cho người dùng sửa
+    uuid: str = field(default_factory=lambda: str(uuid.uuid4()))
 
 @dataclass
 class Obstacle:
-    """Lớp lưu trữ thông tin cho một vật cản."""
-    id: str
+    name: str
     lat: float
     lon: float
-    length: float  # Chiều dài (m)
-    width: float   # Chiều rộng (m)
-    height: float  # Chiều cao (m)
+    length: float
+    width: float
+    height: float
+    uuid: str = field(default_factory=lambda: str(uuid.uuid4()))

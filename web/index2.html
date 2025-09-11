@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <!-- ... (head content không đổi) ... -->
+</head>
+<body>
+    <div id="map"></div>
+    <script src="leaflet/leaflet.js"></script>
+    <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+    <script>
+        var map = L.map('map').setView([21.0285, 105.8542], 13);
+        L.tileLayer('tiles/hanoi_tiles/{z}/{x}/{y}.png', { /* ... */ }).addTo(map);
+
+        var py_bridge = null;
+        var drawnLayers = {};
+        var overlayLayer = null;
+
+        new QWebChannel(qt.webChannelTransport, function (channel) {
+            py_bridge = channel.objects.py_bridge;
+        });
+
+        map.on('click', function(e) { /* ... (code không đổi) ... */ });
+
+        // --- CÁC HÀM TƯƠNG TÁC VỚI PYTHON (ĐÃ NÂNG CẤP) ---
+
+        // Nâng cấp: Nhận cả object để hiển thị Popup chi tiết hơn
+        function addEmpMarker(emp) {
+            if (drawnLayers[emp.uuid]) { map.removeLayer(drawnLayers[emp.uuid]); }
+            var marker = L.marker([emp.lat, emp.lon]).addTo(map);
+            marker.bindPopup(`<b>Nguồn EMP: ${emp.name}</b><br>Công suất: ${emp.power} W`);
+            drawnLayers[emp.uuid] = marker;
+        }
+
+        function addObstacleShape(obs) {
+            if (drawnLayers[obs.uuid]) { map.removeLayer(drawnLayers[obs.uuid]); }
+            const lat_offset = (obs.width / 2) / 111111;
+            const lon_offset = (obs.length / 2) / (111111 * Math.cos(obs.lat * Math.PI / 180));
+            var bounds = [[obs.lat - lat_offset, obs.lon - lon_offset], [obs.lat + lat_offset, obs.lon + lon_offset]];
+            var rect = L.rectangle(bounds, {color: "#3388ff", weight: 1}).addTo(map);
+            rect.bindPopup(`<b>Vật cản: ${obs.name}</b><br>Kích thước: ${obs.length}x${obs.width}x${obs.height} m`);
+            drawnLayers[obs.uuid] = rect;
+        }
+        
+        // --- HÀM MỚI ---
+        function removeObject(uuid) {
+            if (drawnLayers[uuid]) {
+                map.removeLayer(drawnLayers[uuid]);
+                delete drawnLayers[uuid];
+            }
+        }
+
+        function clearAllObjects() {
+            for (var uuid in drawnLayers) {
+                map.removeLayer(drawnLayers[uuid]);
+            }
+            drawnLayers = {};
+        }
+        
+        function setMapView(lat, lon, zoom) {
+            map.setView([lat, lon], zoom);
+        }
+
+        function getMapView() {
+            var center = map.getCenter();
+            var zoom = map.getZoom();
+            if (py_bridge) {
+                // Gửi thông tin về Python qua bridge
+                py_bridge.onMapViewReceived(center.lat, center.lng, zoom);
+            }
+        }
+
+        function updateOverlayImage(imageUrl, latMin, lonMin, latMax, lonMax) {
+            /* ... (code không đổi) ... */
+        }
+    
+        function getMapBounds() {
+            /* ... (code không đổi) ... */
+        }
+    </script>
+</body>
+</html>
+```**Giải thích thay đổi:**
+*   `addEmpMarker` và `addObstacleShape` giờ nhận cả đối tượng JSON để có thể hiển thị `name` trong Popup.
+*   Thêm `removeObject(uuid)` để xóa một đối tượng cụ thể.
+*   Thêm `clearAllObjects()` để xóa sạch bản đồ khi tạo dự án mới hoặc mở dự án khác.
+*   Thêm `setMapView(...)` để Python có thể di chuyển bản đồ.
+*   Thêm `getMapView()` để Python có thể "hỏi" vị trí và mức zoom hiện tại của bản đồ, rất quan trọng cho việc lưu dự án.
+
+---
+
+### **Bước 2: Cập nhật `map_view.py`**
+
+Chúng ta cần thêm `signal` và `slot` mới vào lớp `Bridge` để xử lý việc nhận `map_state`.
+
+```python
+# emp_planning_system/map_view.py
+
+from PyQt5.QtCore import QObject, pyqtSlot, pyqtSignal, QUrl
+from PyQt5.QtWebEngineWidgets import QWebEngineView
+from PyQt5.QtWebChannel import QWebChannel
+
+class Bridge(QObject):
+    mapClicked = pyqtSignal(float, float)
+    mapBoundsReceived = pyqtSignal(float, float, float, float)
+    
+    # --- SIGNAL MỚI ---
+    mapViewReceived = pyqtSignal(float, float, int)
+
+    @pyqtSlot(float, float)
+    def onMapClicked(self, lat, lon):
+        self.mapClicked.emit(lat, lon)
+    
+    @pyqtSlot(float, float, float, float)
+    def onMapBoundsReceived(self, s, w, n, e):
+        self.mapBoundsReceived.emit(s, w, n, e)
+
+    # --- SLOT MỚI ---
+    @pyqtSlot(float, float, int)
+    def onMapViewReceived(self, lat, lon, zoom):
+        """Nhận trạng thái bản đồ từ JS và phát tín hiệu cho MainWindow."""
+        self.mapViewReceived.emit(lat, lon, zoom)
+
+class MapView(QWebEngineView):
+    # ... (code còn lại không đổi) ...
